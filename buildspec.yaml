@@ -8,6 +8,7 @@ phases:
    - echo gradle -version
  build:
   commands:
+   - chmod +x gradle
    - ./gradle buildZip
    - aws cloudformation package --template-file samTemplate.yaml --s3-bucket boneylambda --s3-prefix function --output-template-file outputtemplate.yaml
  post_build:
