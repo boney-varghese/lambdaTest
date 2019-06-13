@@ -1,0 +1,248 @@
+Description: >
+  Codepipeline Build and Deployment of ECS Service
+Parameters:
+  githubUser:
+    Type: String
+    Description: Your repo owner on GitHub.
+    Default: ninelabs
+
+  githubRepo:
+    Type: String
+    Default: cpj-datamanager
+    Description: The repo name.
+
+  githubBranch:
+    Type: String
+    Default: develop
+    Description: The branch of the repo to continuously deploy.
+
+  githubToken:
+    Type: String
+    Description: >
+      Token for the user specified above.
+      (https://github.com/settings/tokens)
+      (https://docs.aws.amazon.com/codepipeline/latest/userguide/GitHub-rotate-personal-token-CLI.html)
+    NoEcho: true
+
+Resources:
+  CodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Resource: "*"
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - ecr:GetAuthorizationToken
+              - Resource: "*"
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:GetObjectVersion
+
+  CodePipelineServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Action:
+                - iam:PassRole
+                Resource: "*"
+                Effect: Allow
+                Condition:
+                  StringEqualsIfExists:
+                    iam:PassedToService:
+                      - cloudformation.amazonaws.com
+                      - elasticbeanstalk.amazonaws.com
+                      - ec2.amazonaws.com
+                      - ecs-tasks.amazonaws.com
+              - Action:
+                - codecommit:CancelUploadArchive
+                - codecommit:GetBranch
+                - codecommit:GetCommit
+                - codecommit:GetUploadArchiveStatus
+                - codecommit:UploadArchive
+                Resource: "*"
+                Effect: Allow
+              - Action:
+                - codedeploy:CreateDeployment
+                - codedeploy:GetApplication
+                - codedeploy:GetApplicationRevision
+                - codedeploy:GetDeployment
+                - codedeploy:GetDeploymentConfig
+                - codedeploy:RegisterApplicationRevision
+                Resource: "*"
+                Effect: Allow
+              - Action:
+                - elasticbeanstalk:*
+                - ec2:*
+                - elasticloadbalancing:*
+                - autoscaling:*
+                - cloudwatch:*
+                - s3:*
+                - sns:*
+                - cloudformation:*
+                - rds:*
+                - sqs:*
+                - ecs:*
+                Resource: "*"
+                Effect: Allow
+              - Action:
+                - lambda:InvokeFunction
+                - lambda:ListFunctions
+                Resource: "*"
+                Effect: Allow
+              - Action:
+                - opsworks:CreateDeployment
+                - opsworks:DescribeApps
+                - opsworks:DescribeCommands
+                - opsworks:DescribeDeployments
+                - opsworks:DescribeInstances
+                - opsworks:DescribeStacks
+                - opsworks:UpdateApp
+                - opsworks:UpdateStack
+                Resource: "*"
+                Effect: Allow
+              - Action:
+                - cloudformation:CreateStack
+                - cloudformation:DeleteStack
+                - cloudformation:DescribeStacks
+                - cloudformation:UpdateStack
+                - cloudformation:CreateChangeSet
+                - cloudformation:DeleteChangeSet
+                - cloudformation:DescribeChangeSet
+                - cloudformation:ExecuteChangeSet
+                - cloudformation:SetStackPolicy
+                - cloudformation:ValidateTemplate
+                Resource: "*"
+                Effect: Allow
+              - Action:
+                - codebuild:BatchGetBuilds
+                - codebuild:StartBuild
+                Resource: "*"
+                Effect: Allow
+              - Effect: Allow
+                Action:
+                - devicefarm:ListProjects
+                - devicefarm:ListDevicePools
+                - devicefarm:GetRun
+                - devicefarm:GetUpload
+                - devicefarm:CreateUpload
+                - devicefarm:ScheduleRun
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                - servicecatalog:ListProvisioningArtifacts
+                - servicecatalog:CreateProvisioningArtifact
+                - servicecatalog:DescribeProvisioningArtifact
+                - servicecatalog:DeleteProvisioningArtifact
+                - servicecatalog:UpdateProduct
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                - cloudformation:ValidateTemplate
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                - ecr:DescribeImages
+                Resource: "*"
+
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Artifacts:
+        Type: CODEPIPELINE
+      Source:
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/java:openjdk-8
+        Type: LINUX_CONTAINER
+        PrivilegedMode: true
+      Name: code-build-test
+      ServiceRole: !Ref CodeBuildServiceRole
+
+  Pipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Sub code-pipe
+      RoleArn: !GetAtt CodePipelineServiceRole.Arn
+      ArtifactStore:
+        Type: S3
+        Location: boneylambda
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: App
+              ActionTypeId:
+                Category: Source
+                Owner: ThirdParty
+                Version: 1
+                Provider: GitHub
+              Configuration:
+                Owner: !Ref githubUser
+                Repo: !Ref githubRepo
+                Branch: !Ref githubBranch
+                OAuthToken: !Ref githubToken
+              OutputArtifacts:
+                - Name: SourceArtifact
+              RunOrder: 1
+        - Name: Build
+          Actions:
+            - Name: Build
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Version: 1
+                Provider: CodeBuild
+              Configuration:
+                ProjectName: !Ref CodeBuildProject
+              InputArtifacts:
+                - Name: SourceArtifact
+              OutputArtifacts:
+                - Name: BuildArtifact
+              RunOrder: 1
+        - Name: LambdaDeploy
+          Actions:
+            - Name: CreateUpdateLambda
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: 1
+                Provider: CloudFormation
+              Configuration:
+                ActionMode: CREATE_UPDATE
+                Capabilities: CAPABILITY_IAM,CAPABILITY_AUTO_EXPAND
+                RoleArn: arn:aws:iam::435341406651:role/cfn-lambda-pipeline
+                StackName: lambda-stack
+                ChangeSetName: lambda-changeset
+                TemplatePath: BuildArtifact::outputtemplate.yaml
+              InputArtifacts:
+                - Name: BuildArtifact
+              RunOrder: 1

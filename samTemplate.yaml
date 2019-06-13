@@ -5,7 +5,7 @@ Resources:
   developerlambdaquotes:
     Type: 'AWS::Serverless::Function'
     Properties:
-      FunctionName: lambda-demo1
+      FunctionName: lambda-demo
       Handler: com.lambda.lambdaTest.MainController::test
       Runtime: java8
       CodeUri: ./build/distributions/lambdaTest-0.0.1.zip
