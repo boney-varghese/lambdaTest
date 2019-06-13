@@ -7,7 +7,7 @@ phases:
   commands:
    - echo gradle -version
    - sudo apt-get update
-   - sudo apt upgrade gradle
+   - sudo apt upgrade gradle -y
  build:
   commands:
    - gradle buildZip
